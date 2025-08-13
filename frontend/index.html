@@ -514,26 +514,27 @@
                     },
                 });
 
-                candlestickSeries = chart.addCandlestickSeries({
-                    upColor: '#4ade80',
-                    downColor: '#f87171',
-                    borderDownColor: '#f87171',
-                    borderUpColor: '#4ade80',
-                    wickDownColor: '#f87171',
-                    wickUpColor: '#4ade80',
-                });
+                            candlestickSeries = chart.addCandlestickSeries({
+                upColor: '#4ade80',
+                downColor: '#f87171',
+                borderDownColor: '#f87171',
+                borderUpColor: '#4ade80',
+                wickDownColor: '#f87171',
+                wickUpColor: '#4ade80',
+            });
 
-                volumeSeries = chart.addHistogramSeries({
-                    color: '#26a69a',
-                    priceFormat: {
-                        type: 'volume',
-                    },
-                    priceScaleId: '',
-                    scaleMargins: {
-                        top: 0.8,
-                        bottom: 0,
-                    },
-                });
+            // Volume series removed for cleaner chart display
+            // volumeSeries = chart.addHistogramSeries({
+            //     color: '#26a69a',
+            //     priceFormat: {
+            //         type: 'volume',
+            //     },
+            //     priceScaleId: '',
+            //     scaleMargins: {
+            //         top: 0.8,
+            //         bottom: 0,
+            //     },
+            // });
 
                 chart.timeScale().fitContent();
                 console.log('Chart initialized successfully');
@@ -662,14 +663,13 @@
                 
                 candlestickSeries.update(candle);
                 
-                // Add volume data
-                const volume = {
-                    time: new Date(data.timestamp).getTime() / 1000,
-                    value: data.bar.volume,
-                    color: data.bar.close >= data.bar.open ? '#4ade80' : '#f87171'
-                };
-                
-                volumeSeries.update(volume);
+                // Volume updates removed for cleaner chart
+                // const volume = {
+                //     time: new Date(data.timestamp).getTime() / 1000,
+                //     value: data.bar.volume,
+                //     color: data.bar.close >= data.bar.open ? '#4ade80' : '#f87171'
+                // };
+                // volumeSeries.update(volume);
                 
                 // Update progress
                 currentBarIndex++;
@@ -739,50 +739,11 @@
         function addTradeMarkers(trades) {
             if (!chart || !candlestickSeries) return;
             
-            // Get the latest trade
-            const latestTrade = trades[trades.length - 1];
-            if (!latestTrade) return;
-            
-            const tradeTime = new Date(latestTrade.timestamp).getTime() / 1000;
-            const tradePrice = latestTrade.price;
-            const tradeSide = latestTrade.side;
-            
-            // Create marker
-            const marker = {
-                time: tradeTime,
-                position: tradeSide === 'buy' ? 'belowBar' : 'aboveBar',
-                color: tradeSide === 'buy' ? '#4ade80' : '#f87171',
-                shape: tradeSide === 'buy' ? 'arrowUp' : 'arrowDown',
-                text: `${tradeSide.toUpperCase()} ${latestTrade.quantity}`,
-                size: 2
-            };
-            
-            // Add marker to chart
-            candlestickSeries.setMarkers([marker]);
-            
-            // Also add a price line for the trade
-            const priceLine = {
-                price: tradePrice,
-                color: tradeSide === 'buy' ? '#4ade80' : '#f87171',
-                lineWidth: 2,
-                lineStyle: 1, // Dashed
-                axisLabelVisible: true,
-                title: `${tradeSide.toUpperCase()} @ $${tradePrice.toFixed(2)}`
-            };
-            
-            candlestickSeries.setPriceLines([priceLine]);
-        }
-
-        // Show all trade markers on the chart
-        function showAllTradeMarkers(trades) {
-            if (!chart || !candlestickSeries) return;
-            
+            // Create markers for ALL trades, not just the latest one
             const markers = [];
-            const priceLines = [];
             
             trades.forEach(trade => {
                 const tradeTime = new Date(trade.timestamp).getTime() / 1000;
-                const tradePrice = trade.price;
                 const tradeSide = trade.side;
                 
                 // Create marker
@@ -796,23 +757,37 @@
                 };
                 
                 markers.push(marker);
-                
-                // Create price line
-                const priceLine = {
-                    price: tradePrice,
-                    color: tradeSide === 'buy' ? '#4ade80' : '#f87171',
-                    lineWidth: 1,
-                    lineStyle: 1, // Dashed
-                    axisLabelVisible: true,
-                    title: `${tradeSide.toUpperCase()} @ $${tradePrice.toFixed(2)}`
-                };
-                
-                priceLines.push(priceLine);
             });
             
-            // Add all markers and price lines
+            // Set ALL markers on the chart
             candlestickSeries.setMarkers(markers);
-            candlestickSeries.setPriceLines(priceLines);
+        }
+
+        // Show all trade markers on the chart
+        function showAllTradeMarkers(trades) {
+            if (!chart || !candlestickSeries) return;
+            
+            const markers = [];
+            
+            trades.forEach(trade => {
+                const tradeTime = new Date(trade.timestamp).getTime() / 1000;
+                const tradeSide = trade.side;
+                
+                // Create marker
+                const marker = {
+                    time: tradeTime,
+                    position: tradeSide === 'buy' ? 'belowBar' : 'aboveBar',
+                    color: tradeSide === 'buy' ? '#4ade80' : '#f87171',
+                    shape: tradeSide === 'buy' ? 'arrowUp' : 'arrowDown',
+                    text: `${tradeSide.toUpperCase()} ${trade.quantity}`,
+                    size: 1.5
+                };
+                
+                markers.push(marker);
+            });
+            
+            // Add all markers
+            candlestickSeries.setMarkers(markers);
         }
 
         // Update performance metrics
@@ -851,9 +826,7 @@
             
             // Clear previous data
             candlestickSeries.setData([]);
-            volumeSeries.setData([]);
             candlestickSeries.setMarkers([]);
-            candlestickSeries.setPriceLines([]);
             tradeMarkers = [];
             
             // Get form data
