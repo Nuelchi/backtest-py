@@ -98,6 +98,9 @@ class BacktestEngine:
         # Performance tracking
         self.peak_equity = initial_capital
         self.max_drawdown = 0.0
+        
+        # Current symbol being traded
+        self.symbol: str = "UNKNOWN"
         self.total_trades = 0
         self.winning_trades = 0
         
@@ -114,7 +117,29 @@ class BacktestEngine:
                    price: Optional[float] = None,
                    stop_price: Optional[float] = None) -> str:
         """Place a new order."""
+        # Validate order parameters
+        if quantity <= 0:
+            print(f"INVALID ORDER: Quantity {quantity} must be positive")
+            return ""
+            
+        if not symbol or symbol == "":
+            print(f"INVALID ORDER: Symbol cannot be empty")
+            return ""
+            
+        # Check for unrealistic trading patterns
+        current_position = self.get_position(symbol).quantity
+        
+        if side == OrderSide.BUY and current_position > 0:
+            print(f"WARNING: Attempting to BUY while already long {current_position} shares")
+            print(f"This may indicate poor strategy logic - consider if this is intentional")
+            
+        if side == OrderSide.SELL and current_position < 0:
+            print(f"WARNING: Attempting to SELL while already short {abs(current_position)} shares")
+            print(f"This may indicate poor strategy logic - consider if this is intentional")
+            
         order_id = f"order_{len(self.orders)}_{datetime.now().timestamp()}"
+        
+        print(f"PLACING ORDER: {side.value} {quantity} {symbol} @ {price or 'MARKET'}")
         
         order = Order(
             id=order_id,
@@ -128,6 +153,7 @@ class BacktestEngine:
         )
         
         self.orders.append(order)
+        print(f"Order placed successfully. Total orders: {len(self.orders)}")
         return order_id
     
     def cancel_order(self, order_id: str) -> bool:
@@ -153,6 +179,60 @@ class BacktestEngine:
                     position.unrealized_pnl = (current_price - position.avg_price) * position.quantity
                     equity += position.unrealized_pnl
         return equity
+    
+    def get_min_tick(self, symbol: str) -> float:
+        """Get minimum tick size for a symbol (simplified)."""
+        # For now, return a reasonable default
+        return 0.01  # 1 cent for most stocks
+    
+    def ema(self, symbol: str, period: int) -> float:
+        """Calculate Exponential Moving Average (simplified)."""
+        # This is a simplified EMA calculation
+        # In a real implementation, you'd store price history and calculate properly
+        if not hasattr(self, '_price_history'):
+            self._price_history = []
+        
+        self._price_history.append(self.current_bar.close)
+        
+        # Keep only the last 'period' prices
+        if len(self._price_history) > period:
+            self._price_history = self._price_history[-period:]
+        
+        # Simple average for now (not true EMA)
+        if len(self._price_history) >= period:
+            return sum(self._price_history) / len(self._price_history)
+        else:
+            return self.current_bar.close
+    
+    def crossed_above(self, series1: float, series2: float) -> bool:
+        """Check if series1 crossed above series2."""
+        if not hasattr(self, '_prev_values'):
+            self._prev_values = {}
+        
+        key = f"{id(series1)}_{id(series2)}"
+        prev_above = self._prev_values.get(key, False)
+        current_above = series1 > series2
+        
+        # Update previous value
+        self._prev_values[key] = current_above
+        
+        # Return True if it just crossed above
+        return current_above and not prev_above
+    
+    def crossed_below(self, series1: float, series2: float) -> bool:
+        """Check if series1 crossed below series2."""
+        if not hasattr(self, '_prev_values'):
+            self._prev_values = {}
+        
+        key = f"{id(series1)}_{id(series2)}"
+        prev_below = self._prev_values.get(key, False)
+        current_below = series1 < series2
+        
+        # Update previous value
+        self._prev_values[key] = current_below
+        
+        # Return True if it just crossed below
+        return current_below and not prev_below
     
     def _process_orders(self, bar: Bar):
         """Process pending orders against current bar."""
@@ -316,10 +396,16 @@ class BacktestEngine:
             # Call strategy function
             if self.strategy_callback:
                 try:
+                    print(f"Calling strategy callback for bar {i}, price: {bar.close}")
                     self.strategy_callback(self, bar)
+                    print(f"Strategy callback completed successfully")
                 except Exception as e:
                     print(f"Strategy callback error: {e}")
+                    import traceback
+                    traceback.print_exc()
                     # Continue with backtest even if strategy fails
+            else:
+                print(f"No strategy callback set for bar {i}")
             
             # Update performance metrics
             self._update_performance_metrics()

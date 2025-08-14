@@ -66,6 +66,30 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
+def create_dynamic_strategy(python_code: str, symbol: str):
+    """Create a dynamic strategy from Python code string."""
+    try:
+        # Create a new namespace for the strategy
+        strategy_namespace = {}
+        
+        # Add the symbol to the namespace so the strategy can access it
+        strategy_namespace['SYMBOL'] = symbol
+        
+        # Execute the Python code in the namespace
+        exec(python_code, strategy_namespace)
+        
+        # Get the Strategy class from the namespace
+        if 'Strategy' not in strategy_namespace:
+            raise ValueError("No Strategy class found in the provided code")
+        
+        StrategyClass = strategy_namespace['Strategy']
+        
+        # Create and return an instance
+        return StrategyClass()
+        
+    except Exception as e:
+        raise ValueError(f"Failed to create strategy from code: {str(e)}")
+
 # Pydantic models
 class BacktestRequest(BaseModel):
     symbol: str
@@ -256,7 +280,27 @@ async def run_realtime_backtest(websocket: WebSocket, request_data: Dict):
         
         # Create strategy
         strategy = None
-        if request_data["strategy"] == "moving_average_crossover":
+        if request_data["strategy"] == "custom_python":
+            # Handle custom Python strategy from AI translation
+            python_code = request_data.get("strategy_params", {}).get("python_code", "")
+            if not python_code:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "data": {"message": "No Python code provided for custom strategy"}
+                }))
+                return
+            
+            try:
+                # Create a dynamic strategy from the translated Python code
+                # This is a simplified approach - in production you'd want more security
+                strategy = create_dynamic_strategy(python_code, request_data["symbol"])
+            except Exception as e:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "data": {"message": f"Failed to create custom strategy: {str(e)}"}
+                }))
+                return
+        elif request_data["strategy"] == "moving_average_crossover":
             params = request_data.get("strategy_params", {})
             strategy = MovingAverageCrossover(
                 fast_period=params.get("fast_period", 10),

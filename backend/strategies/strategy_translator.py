@@ -65,16 +65,35 @@ def call_llm_translate(code: str, source_lang: str, target: str = "python") -> O
 CRITICAL REQUIREMENTS:
 1. Create a Python class called 'Strategy' with a '__call__(self, engine, bar)' method
 2. The method must implement the EXACT same trading logic as the source code
-3. Use engine.place_order() method for all trades
+3. Use engine.place_order() method for all trades with correct parameter order: (symbol, side, quantity, order_type)
 4. Import: from backend.engine.backtest_engine import OrderSide, OrderType
 5. Use OrderSide.BUY/SELL and OrderType.MARKET/STOP/LIMIT
 6. Access price data via bar.open, bar.high, bar.low, bar.close
-7. Get current position via engine.get_position(bar.symbol).quantity
-8. Preserve ALL stop-loss, take-profit, and risk management logic
-9. Maintain the exact same entry/exit conditions and timing
-10. Handle all technical indicators (EMA, SMA, RSI, Bollinger Bands, etc.)
-11. Preserve position sizing and risk management rules
-12. Return ONLY the Python code, no explanations or markdown
+7. Get current position via engine.get_position(SYMBOL).quantity (use the SYMBOL variable, not hardcoded strings)
+8. Use SYMBOL variable for all engine.place_order() calls (e.g., engine.place_order(SYMBOL, OrderSide.BUY, 1, OrderType.MARKET))
+9. Preserve ALL stop-loss, take-profit, and risk management logic
+10. Maintain the exact same entry/exit conditions and timing
+11. Handle all technical indicators (EMA, SMA, RSI, Bollinger Bands, etc.)
+12. Preserve position sizing and risk management rules
+13. Return ONLY the Python code, no explanations or markdown
+
+CRITICAL TRADING LOGIC RULES:
+- NEVER place multiple BUY orders without selling first (unless averaging down with explicit logic)
+- NEVER place multiple SELL orders without buying first (unless partial profit taking with explicit logic)
+- ALWAYS check current position before placing new orders
+- Use proper position management: Buy → Hold → Sell, not Buy → Sell → Buy → Buy
+- Implement proper stop-loss and take-profit logic
+- Use realistic position sizing (typically 5-20% of capital per trade)
+
+CRITICAL PINE SCRIPT CONVERSIONS:
+- ta.crossover(fastMA, slowMA) → Use engine.crossed_above(fastMA, slowMA)
+- ta.crossunder(fastMA, slowMA) → Use engine.crossed_below(fastMA, slowMA)
+- ta.ema(close, period) → Use engine.ema(SYMBOL, period)
+- ta.sma(close, period) → Use engine.sma(SYMBOL, period)
+- strategy.equity → Use engine.get_equity()
+- syminfo.mintick → Use engine.get_min_tick(SYMBOL)
+- strategy.entry() → Use engine.place_order(SYMBOL, side, quantity, OrderType.MARKET)
+- strategy.exit() → Use engine.place_order(SYMBOL, opposite_side, position_quantity, OrderType.MARKET)
 
 EXAMPLE OUTPUT FORMAT:
 ```python
@@ -82,12 +101,41 @@ from backend.engine.backtest_engine import OrderSide, OrderType
 
 class Strategy:
     def __init__(self):
-        self.prices = []
+        self.position = 0  # Track current position: 0=none, 1=long, -1=short
+        self.fastMA = None
+        self.slowMA = None
     
     def __call__(self, engine, bar):
-        # Strategy logic here
-        pass
-```"""
+        # Get current position
+        current_pos = engine.get_position(SYMBOL).quantity
+        
+        # Calculate indicators
+        self.fastMA = engine.ema(SYMBOL, 9)
+        self.slowMA = engine.ema(SYMBOL, 21)
+        
+        # Check for crossovers
+        if current_pos == 0:  # No position
+            if engine.crossed_above(self.fastMA, self.slowMA):
+                # Buy signal
+                quantity = int(engine.get_equity() * 0.1 / bar.close)
+                engine.place_order(SYMBOL, OrderSide.BUY, quantity, OrderType.MARKET)
+                self.position = 1
+        elif current_pos > 0:  # Long position
+            if engine.crossed_below(self.fastMA, self.slowMA):
+                # Sell signal
+                engine.place_order(SYMBOL, OrderSide.SELL, abs(current_pos), OrderType.MARKET)
+                self.position = 0
+        # Use SYMBOL variable for all symbol references
+```
+
+IMPORTANT: 
+- engine.place_order() takes parameters in this order: (symbol, side, quantity, order_type)
+- Use SYMBOL variable for all symbol references, not hardcoded strings like "AAPL"
+- The SYMBOL variable will be automatically set by the backend
+- ALWAYS implement proper position management to avoid unrealistic trading patterns
+- For crossovers, use engine.crossed_above() and engine.crossed_below() methods
+- For indicators, use engine.ema(), engine.sma() methods
+- For risk management, use engine.get_equity() and engine.get_min_tick() methods"""
         
         user_prompt = f"""Translate this {source_lang.upper()} code to Python:
 
@@ -110,7 +158,7 @@ Return ONLY the Python code, no explanations."""
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.1,  # Low temperature for consistent translation
-            "max_tokens": 2000
+            "max_tokens": 2000  # Reduced to fit within available credits
         }
         
         response = requests.post(
