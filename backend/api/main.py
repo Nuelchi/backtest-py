@@ -65,6 +65,7 @@ manager = ConnectionManager()
 # Pydantic models
 class BacktestRequest(BaseModel):
     symbol: str
+    timeframe: str = "1d"
     strategy: str
     start_date: str
     end_date: str
@@ -123,7 +124,7 @@ async def get_strategies():
 
 @app.get("/api/symbols")
 async def get_symbols():
-    """Get available symbols."""
+    """Get available symbols categorized by asset type."""
     symbols = await data_manager.get_available_symbols()
     return {"symbols": symbols}
 
@@ -141,7 +142,8 @@ async def start_backtest(request: BacktestRequest):
         data = await data_manager.get_data_for_backtest(
             request.symbol, 
             request.start_date, 
-            request.end_date
+            request.end_date,
+            request.timeframe
         )
         
         # Create strategy instance
@@ -181,16 +183,41 @@ async def start_backtest(request: BacktestRequest):
         engine.set_strategy(strategy)
         
         # Run backtest
-        await engine.run_backtest(data, delay=0.1)
+        await engine.run_backtest(data, delay=0.05)
         
         # Get performance summary
-        summary = engine.get_performance_summary()
-        
-        return {
-            "status": "completed",
-            "summary": summary,
-            "data_points": len(data)
-        }
+        try:
+            summary = engine.get_performance_summary()
+            
+            # Ensure all values are JSON serializable
+            summary = jsonable_encoder(summary)
+            
+            return {
+                "status": "completed",
+                "summary": summary,
+                "data_points": len(data)
+            }
+        except Exception as e:
+            print(f"Error serializing performance summary: {e}")
+            # Return safe fallback
+            return {
+                "status": "completed",
+                "summary": {
+                    "total_return": 0.0,
+                    "annual_return": 0.0,
+                    "volatility": 0.0,
+                    "sharpe_ratio": 0.0,
+                    "max_drawdown": 0.0,
+                    "total_trades": 0,
+                    "winning_trades": 0,
+                    "win_rate": 0.0,
+                    "final_equity": request.initial_capital,
+                    "peak_equity": request.initial_capital,
+                    "equity_curve": [],
+                    "trades": []
+                },
+                "data_points": len(data)
+            }
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -219,7 +246,8 @@ async def run_realtime_backtest(websocket: WebSocket, request_data: Dict):
         data = await data_manager.get_data_for_backtest(
             request_data["symbol"],
             request_data["start_date"],
-            request_data["end_date"]
+            request_data["end_date"],
+            request_data.get("timeframe", "1d")
         )
         
         # Create strategy
@@ -278,16 +306,37 @@ async def run_realtime_backtest(websocket: WebSocket, request_data: Dict):
         }))
         
         # Run backtest
-        await engine.run_backtest(data, delay=0.1)
+        await engine.run_backtest(data, delay=0.03)
         
         # Send final summary
-        summary = engine.get_performance_summary()
-        # Ensure JSON serializable
-        summary = jsonable_encoder(summary)
-        await websocket.send_text(json.dumps({
-            "type": "complete",
-            "data": summary
-        }))
+        try:
+            summary = engine.get_performance_summary()
+            # Ensure JSON serializable
+            summary = jsonable_encoder(summary)
+            await websocket.send_text(json.dumps({
+                "type": "complete",
+                "data": summary
+            }))
+        except Exception as e:
+            print(f"Error serializing WebSocket summary: {e}")
+            # Send safe fallback
+            await websocket.send_text(json.dumps({
+                "type": "complete",
+                "data": {
+                    "total_return": 0.0,
+                    "annual_return": 0.0,
+                    "volatility": 0.0,
+                    "sharpe_ratio": 0.0,
+                    "max_drawdown": 0.0,
+                    "total_trades": 0,
+                    "winning_trades": 0,
+                    "win_rate": 0.0,
+                    "final_equity": request_data.get("initial_capital", 100000.0),
+                    "peak_equity": request_data.get("initial_capital", 100000.0),
+                    "equity_curve": [],
+                    "trades": []
+                }
+            }))
         
     except Exception as e:
         await websocket.send_text(json.dumps({

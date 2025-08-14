@@ -64,7 +64,7 @@ class DataManager:
             raise Exception(f"Error fetching data for {symbol}: {str(e)}")
     
     async def get_data_for_backtest(self, symbol: str, start_date: str, 
-                                   end_date: str, interval: str = "1d") -> pd.DataFrame:
+                                   end_date: str, timeframe: str = "1d") -> pd.DataFrame:
         """
         Get data for a specific date range for backtesting.
         
@@ -72,11 +72,18 @@ class DataManager:
             symbol: Stock symbol
             start_date: Start date in 'YYYY-MM-DD' format
             end_date: End date in 'YYYY-MM-DD' format
-            interval: Data interval
+            timeframe: Data timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w, 1mo)
         
         Returns:
             DataFrame with OHLCV data
         """
+        # Map timeframe to yfinance interval
+        timeframe_mapping = {
+            "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
+            "1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w", "1mo": "1mo"
+        }
+        
+        interval = timeframe_mapping.get(timeframe, "1d")
         cache_key = f"{symbol}_{start_date}_{end_date}_{interval}"
         cached_data = await self._load_from_cache(cache_key)
         
@@ -85,7 +92,39 @@ class DataManager:
         
         try:
             ticker = yf.Ticker(symbol)
-            data = ticker.history(start=start_date, end=end_date, interval=interval)
+            
+            # For forex and crypto, try different approaches
+            if symbol in self._get_forex_symbols() or symbol in self._get_crypto_symbols():
+                # Try with period-based fetching first (more reliable for forex/crypto)
+                try:
+                    # Calculate period based on date range
+                    start_dt = pd.to_datetime(start_date)
+                    end_dt = pd.to_datetime(end_date)
+                    days_diff = (end_dt - start_dt).days
+                    
+                    if days_diff <= 7:
+                        period = "5d"
+                    elif days_diff <= 30:
+                        period = "1mo"
+                    elif days_diff <= 90:
+                        period = "3mo"
+                    elif days_diff <= 180:
+                        period = "6mo"
+                    else:
+                        period = "1y"
+                    
+                    data = ticker.history(period=period, interval=interval)
+                    
+                    # Filter to requested date range
+                    if not data.empty:
+                        data = data[(data.index >= start_date) & (data.index <= end_date)]
+                        
+                except Exception:
+                    # Fallback to date-based fetching
+                    data = ticker.history(start=start_date, end=end_date, interval=interval)
+            else:
+                # For stocks, use date-based fetching
+                data = ticker.history(start=start_date, end=end_date, interval=interval)
             
             if data.empty:
                 raise ValueError(f"No data found for {symbol} from {start_date} to {end_date}")
@@ -101,12 +140,32 @@ class DataManager:
         except Exception as e:
             raise Exception(f"Error fetching data for {symbol}: {str(e)}")
     
-    async def get_available_symbols(self) -> List[str]:
-        """Get a list of popular symbols for testing."""
-        return [
-            "AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "NFLX",
-            "SPY", "QQQ", "IWM", "GLD", "SLV", "USO", "TLT", "VTI"
-        ]
+    def _get_forex_symbols(self) -> List[str]:
+        """Get list of forex symbols."""
+        return ["EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF", 
+                "EURGBP", "GBPJPY", "EURJPY", "AUDJPY"]
+    
+    def _get_crypto_symbols(self) -> List[str]:
+        """Get list of crypto symbols."""
+        return ["BTCUSD", "ETHUSD", "ADAUSD", "DOTUSD", "LINKUSD", "SOLUSD", 
+                "BNBUSD", "XRPUSD", "MATICUSD", "AVAXUSD"]
+    
+    async def get_available_symbols(self) -> Dict[str, List[str]]:
+        """Get categorized symbols for different asset types."""
+        return {
+            "stocks": [
+                "AAPL", "GOOGL", "MSFT", "AMZN", "TSLA", "META", "NVDA", "NFLX",
+                "SPY", "QQQ", "IWM", "GLD", "SLV", "USO", "TLT", "VTI"
+            ],
+            "forex": [
+                "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "USDCAD", "USDCHF",
+                "EURGBP", "GBPJPY", "EURJPY", "AUDJPY"
+            ],
+            "crypto": [
+                "BTCUSD", "ETHUSD", "ADAUSD", "DOTUSD", "LINKUSD", "SOLUSD",
+                "BNBUSD", "XRPUSD", "MATICUSD", "AVAXUSD"
+            ]
+        }
     
     async def get_symbol_info(self, symbol: str) -> Dict:
         """Get basic information about a symbol."""

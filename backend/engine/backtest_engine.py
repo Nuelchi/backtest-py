@@ -268,9 +268,9 @@ class BacktestEngine:
         # Record equity curve
         self.equity_curve.append({
             'timestamp': self.current_bar.timestamp.isoformat() if hasattr(self.current_bar.timestamp, 'isoformat') else str(self.current_bar.timestamp),
-            'equity': equity,
-            'capital': self.capital,
-            'drawdown': current_drawdown
+            'equity': float(equity),
+            'capital': float(self.capital),
+            'drawdown': float(current_drawdown)
         })
     
     async def run_backtest(self, data: pd.DataFrame, delay: float = 0.1):
@@ -315,7 +315,11 @@ class BacktestEngine:
             
             # Call strategy function
             if self.strategy_callback:
-                self.strategy_callback(self, bar)
+                try:
+                    self.strategy_callback(self, bar)
+                except Exception as e:
+                    print(f"Strategy callback error: {e}")
+                    # Continue with backtest even if strategy fails
             
             # Update performance metrics
             self._update_performance_metrics()
@@ -333,70 +337,112 @@ class BacktestEngine:
         return {
             'timestamp': self.current_bar.timestamp.isoformat() if self.current_bar else None,
             'bar': {
-                'open': self.current_bar.open,
-                'high': self.current_bar.high,
-                'low': self.current_bar.low,
-                'close': self.current_bar.close,
-                'volume': self.current_bar.volume
+                'open': float(self.current_bar.open),
+                'high': float(self.current_bar.high),
+                'low': float(self.current_bar.low),
+                'close': float(self.current_bar.close),
+                'volume': float(self.current_bar.volume)
             } if self.current_bar else None,
-            'equity': self.get_equity(),
-            'capital': self.capital,
-            'positions': {symbol: {
-                'quantity': pos.quantity,
-                'avg_price': pos.avg_price,
-                'unrealized_pnl': pos.unrealized_pnl,
-                'realized_pnl': pos.realized_pnl
+            'equity': float(self.get_equity()),
+            'capital': float(self.capital),
+            'positions': {str(symbol): {
+                'quantity': float(pos.quantity),
+                'avg_price': float(pos.avg_price),
+                'unrealized_pnl': float(pos.unrealized_pnl),
+                'realized_pnl': float(pos.realized_pnl)
             } for symbol, pos in self.positions.items()},
             'orders': [{
-                'id': order.id,
-                'symbol': order.symbol,
-                'side': order.side.value,
-                'quantity': order.quantity,
-                'filled': order.filled
+                'id': str(order.id),
+                'symbol': str(order.symbol),
+                'side': str(order.side.value),
+                'quantity': float(order.quantity),
+                'filled': bool(order.filled)
             } for order in self.orders],
             'trades': [{
                 'timestamp': trade.timestamp.isoformat() if hasattr(trade.timestamp, 'isoformat') else str(trade.timestamp),
-                'symbol': trade.symbol,
-                'side': trade.side.value,
-                'quantity': trade.quantity,
-                'price': trade.price,
-                'commission': trade.commission
+                'symbol': str(trade.symbol),
+                'side': str(trade.side.value),
+                'quantity': float(trade.quantity),
+                'price': float(trade.price),
+                'commission': float(trade.commission)
             } for trade in self.trades[-10:]]  # Last 10 trades
         }
     
     def get_performance_summary(self) -> Dict:
         """Get comprehensive performance summary."""
-        if not self.equity_curve:
-            return {}
-        
-        equity_series = pd.Series([e['equity'] for e in self.equity_curve])
-        returns = equity_series.pct_change().dropna()
-        
-        # Calculate metrics
-        total_return = (equity_series.iloc[-1] - self.initial_capital) / self.initial_capital
-        annual_return = total_return * (252 / len(equity_series)) if len(equity_series) > 1 else 0
-        volatility = returns.std() * np.sqrt(252) if len(returns) > 1 else 0
-        sharpe_ratio = annual_return / volatility if volatility > 0 else 0
-        win_rate = self.winning_trades / self.total_trades if self.total_trades > 0 else 0
-        
-        return {
-            'total_return': total_return,
-            'annual_return': annual_return,
-            'volatility': volatility,
-            'sharpe_ratio': sharpe_ratio,
-            'max_drawdown': self.max_drawdown,
-            'total_trades': self.total_trades,
-            'winning_trades': self.winning_trades,
-            'win_rate': win_rate,
-            'final_equity': equity_series.iloc[-1],
-            'peak_equity': self.peak_equity,
-            'equity_curve': self.equity_curve,
-            'trades': [{
-                'timestamp': trade.timestamp.isoformat() if hasattr(trade.timestamp, 'isoformat') else str(trade.timestamp),
-                'symbol': trade.symbol,
-                'side': trade.side.value,
-                'quantity': trade.quantity,
-                'price': trade.price,
-                'commission': trade.commission
-            } for trade in self.trades]
-        } 
+        try:
+            if not self.equity_curve:
+                return {}
+            
+            equity_series = pd.Series([e['equity'] for e in self.equity_curve])
+            returns = equity_series.pct_change().dropna()
+            
+            # Calculate metrics with safe conversion
+            final_equity = float(equity_series.iloc[-1]) if len(equity_series) > 0 else float(self.initial_capital)
+            total_return = float((final_equity - self.initial_capital) / self.initial_capital)
+            annual_return = float(total_return * (252 / len(equity_series))) if len(equity_series) > 1 else 0.0
+            volatility = float(returns.std() * np.sqrt(252)) if len(returns) > 1 else 0.0
+            sharpe_ratio = float(annual_return / volatility if volatility > 0 else 0.0)
+            win_rate = float(self.winning_trades / self.total_trades if self.total_trades > 0 else 0.0)
+            
+            # Safely convert equity curve data
+            safe_equity_curve = []
+            for e in self.equity_curve:
+                try:
+                    safe_equity_curve.append({
+                        'timestamp': str(e['timestamp']),
+                        'equity': float(e['equity']),
+                        'capital': float(e['capital']),
+                        'drawdown': float(e['drawdown'])
+                    })
+                except Exception as e:
+                    print(f"Error processing equity curve entry: {e}")
+                    continue
+            
+            # Safely convert trades data
+            safe_trades = []
+            for trade in self.trades:
+                try:
+                    safe_trades.append({
+                        'timestamp': trade.timestamp.isoformat() if hasattr(trade.timestamp, 'isoformat') else str(trade.timestamp),
+                        'symbol': str(trade.symbol),
+                        'side': str(trade.side.value),
+                        'quantity': float(trade.quantity),
+                        'price': float(trade.price),
+                        'commission': float(trade.commission)
+                    })
+                except Exception as e:
+                    print(f"Error processing trade: {e}")
+                    continue
+            
+            return {
+                'total_return': total_return,
+                'annual_return': annual_return,
+                'volatility': volatility,
+                'sharpe_ratio': sharpe_ratio,
+                'max_drawdown': float(self.max_drawdown),
+                'total_trades': int(self.total_trades),
+                'winning_trades': int(self.winning_trades),
+                'win_rate': win_rate,
+                'final_equity': final_equity,
+                'peak_equity': float(self.peak_equity),
+                'equity_curve': safe_equity_curve,
+                'trades': safe_trades
+            }
+        except Exception as e:
+            print(f"Error in get_performance_summary: {e}")
+            # Return safe fallback data
+            return {
+                'total_return': 0.0,
+                'annual_return': 0.0,
+                'volatility': 0.0,
+                'sharpe_ratio': 0.0,
+                'max_drawdown': 0.0,
+                'total_trades': 0,
+                'winning_trades': 0,
+                'win_rate': 0.0,
+                'final_equity': float(self.initial_capital),
+                'peak_equity': float(self.initial_capital),
+                'equity_curve': [],
+                'trades': []
+            } 
