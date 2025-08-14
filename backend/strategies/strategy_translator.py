@@ -95,6 +95,12 @@ CRITICAL PINE SCRIPT CONVERSIONS:
 - strategy.entry() → Use engine.place_order(SYMBOL, side, quantity, OrderType.MARKET)
 - strategy.exit() → Use engine.place_order(SYMBOL, opposite_side, position_quantity, OrderType.MARKET)
 
+IMPORTANT LIMITATIONS:
+- Our engine only supports MARKET orders for now (OrderType.MARKET)
+- Do NOT use OrderType.STOP or OrderType.LIMIT
+- For stop-loss and take-profit, implement them manually in the strategy logic
+- Use engine.symbol (not engine.get_symbol()) to get the current symbol
+
 EXAMPLE OUTPUT FORMAT:
 ```python
 from backend.engine.backtest_engine import OrderSide, OrderType
@@ -104,10 +110,12 @@ class Strategy:
         self.position = 0  # Track current position: 0=none, 1=long, -1=short
         self.fastMA = None
         self.slowMA = None
+        self.entry_price = 0
     
     def __call__(self, engine, bar):
-        # Get current position
+        # Get current position and symbol
         current_pos = engine.get_position(SYMBOL).quantity
+        SYMBOL = engine.symbol
         
         # Calculate indicators
         self.fastMA = engine.ema(SYMBOL, 9)
@@ -120,11 +128,17 @@ class Strategy:
                 quantity = int(engine.get_equity() * 0.1 / bar.close)
                 engine.place_order(SYMBOL, OrderSide.BUY, quantity, OrderType.MARKET)
                 self.position = 1
+                self.entry_price = bar.close
         elif current_pos > 0:  # Long position
-            if engine.crossed_below(self.fastMA, self.slowMA):
-                # Sell signal
+            # Check stop-loss and take-profit
+            stop_loss = self.entry_price * 0.98  # 2% stop loss
+            take_profit = self.entry_price * 1.04  # 4% take profit
+            
+            if bar.close <= stop_loss or bar.close >= take_profit or engine.crossed_below(self.fastMA, self.slowMA):
+                # Exit position
                 engine.place_order(SYMBOL, OrderSide.SELL, abs(current_pos), OrderType.MARKET)
                 self.position = 0
+                self.entry_price = 0
         # Use SYMBOL variable for all symbol references
 ```
 

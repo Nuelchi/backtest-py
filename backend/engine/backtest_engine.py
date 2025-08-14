@@ -190,17 +190,40 @@ class BacktestEngine:
         # This is a simplified EMA calculation
         # In a real implementation, you'd store price history and calculate properly
         if not hasattr(self, '_price_history'):
-            self._price_history = []
+            self._price_history = {}
         
-        self._price_history.append(self.current_bar.close)
+        if symbol not in self._price_history:
+            self._price_history[symbol] = []
+        
+        self._price_history[symbol].append(self.current_bar.close)
         
         # Keep only the last 'period' prices
-        if len(self._price_history) > period:
-            self._price_history = self._price_history[-period:]
+        if len(self._price_history[symbol]) > period:
+            self._price_history[symbol] = self._price_history[symbol][-period:]
         
         # Simple average for now (not true EMA)
-        if len(self._price_history) >= period:
-            return sum(self._price_history) / len(self._price_history)
+        if len(self._price_history[symbol]) >= period:
+            return sum(self._price_history[symbol]) / len(self._price_history[symbol])
+        else:
+            return self.current_bar.close
+    
+    def sma(self, symbol: str, period: int) -> float:
+        """Calculate Simple Moving Average."""
+        if not hasattr(self, '_price_history'):
+            self._price_history = {}
+        
+        if symbol not in self._price_history:
+            self._price_history[symbol] = []
+        
+        self._price_history[symbol].append(self.current_bar.close)
+        
+        # Keep only the last 'period' prices
+        if len(self._price_history[symbol]) > period:
+            self._price_history[symbol] = self._price_history[symbol][-period:]
+        
+        # Simple average
+        if len(self._price_history[symbol]) >= period:
+            return sum(self._price_history[symbol]) / len(self._price_history[symbol])
         else:
             return self.current_bar.close
     
@@ -209,7 +232,8 @@ class BacktestEngine:
         if not hasattr(self, '_prev_values'):
             self._prev_values = {}
         
-        key = f"{id(series1)}_{id(series2)}"
+        # Use a more reliable key for tracking crossovers
+        key = f"crossover_{series1:.6f}_{series2:.6f}"
         prev_above = self._prev_values.get(key, False)
         current_above = series1 > series2
         
@@ -224,7 +248,8 @@ class BacktestEngine:
         if not hasattr(self, '_prev_values'):
             self._prev_values = {}
         
-        key = f"{id(series1)}_{id(series2)}"
+        # Use a more reliable key for tracking crossovers
+        key = f"crossunder_{series1:.6f}_{series2:.6f}"
         prev_below = self._prev_values.get(key, False)
         current_below = series1 < series2
         
@@ -451,7 +476,7 @@ class BacktestEngine:
                 'quantity': float(trade.quantity),
                 'price': float(trade.price),
                 'commission': float(trade.commission)
-            } for trade in self.trades[-10:]]  # Last 10 trades
+            } for trade in self.trades]  # All trades
         }
     
     def get_performance_summary(self) -> Dict:
