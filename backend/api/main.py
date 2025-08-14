@@ -19,6 +19,7 @@ from backend.data.data_manager import DataManager
 from backend.strategies.moving_average_crossover import (
     MovingAverageCrossover, RSIStrategy, BollingerBandsStrategy
 )
+from backend.api.translate import router as translate_router
 
 
 app = FastAPI(title="Event-Driven Backtesting Platform", version="1.0.0")
@@ -34,6 +35,9 @@ app.add_middleware(
 
 # Serve static files
 app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+# Include routers
+app.include_router(translate_router)
 
 # Initialize data manager
 data_manager = DataManager()
